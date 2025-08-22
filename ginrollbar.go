@@ -22,8 +22,20 @@ var (
 func LogRequests(onlyPanics, printStack bool, requestIdCtxKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
-			// If there's a panic, allow errors to be logged first (if configured),
-			// then recover the panic, log it, and re-panic.
+			// Log errors before handling any panic
+			if !onlyPanics && len(c.Errors) > 0 {
+				extraData := make(map[string]interface{})
+				extraData["endpoint"] = c.Request.RequestURI
+				if requestIdCtxKey != "" {
+					extraData["request_id"] = c.Writer.Header().Get(requestIdCtxKey)
+				}
+				for _, item := range c.Errors {
+					extraData["meta"] = fmt.Sprint(item.Meta)
+					RollbarError(item.Err, c.Request, extraData)
+				}
+			}
+
+			// If there's a panic, recover the panic, log it, and re-panic.
 			if r := recover(); r != nil {
 				if printStack {
 					debug.PrintStack()
@@ -56,18 +68,6 @@ func LogRequests(onlyPanics, printStack bool, requestIdCtxKey string) gin.Handle
 				panic(r)
 			}
 		}()
-
-		if !onlyPanics {
-			extraData := make(map[string]interface{})
-			extraData["endpoint"] = c.Request.RequestURI
-			if requestIdCtxKey != "" {
-				extraData["request_id"] = c.Writer.Header().Get(requestIdCtxKey)
-			}
-			for _, item := range c.Errors {
-				extraData["meta"] = fmt.Sprint(item.Meta)
-				RollbarError(item.Err, c.Request, extraData)
-			}
-		}
 
 		c.Next()
 	}
