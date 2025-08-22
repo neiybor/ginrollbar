@@ -15,13 +15,24 @@ var (
 	RollbarError    = rollbar.Error
 )
 
-// Middleware for rollbar error monitoring
-func PanicLogs(printStack bool, requestIdCtxKey string) gin.HandlerFunc {
+// Middleware for rollbar panic and error monitoring
+// onlyPanics: if true, only panics will be logged, otherwise errors will be logged
+// printStack: if true, the stack trace will be printed
+// requestIdCtxKey: the key of the request id in the context
+func LogRequests(onlyPanics, printStack bool, requestIdCtxKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
+			// If there's a panic, allow errors to be logged first (if configured),
+			// then recover the panic, log it, and re-panic.
 			if r := recover(); r != nil {
 				if printStack {
 					debug.PrintStack()
+				}
+
+				extraPanicData := make(map[string]interface{})
+				extraPanicData["endpoint"] = c.Request.RequestURI
+				if requestIdCtxKey != "" {
+					extraPanicData["request_id"] = c.Writer.Header().Get(requestIdCtxKey)
 				}
 
 				// From the rollbar-go docs:
@@ -40,22 +51,23 @@ func PanicLogs(printStack bool, requestIdCtxKey string) gin.HandlerFunc {
 					errors.New(fmt.Sprint(r)),
 					c.Request,
 					3,
-					map[string]interface{}{"endpoint": c.Request.RequestURI},
+					extraPanicData,
 				)
-
-				extraData := make(map[string]interface{})
-				extraData["endpoint"] = c.Request.RequestURI
-				if requestIdCtxKey != "" {
-					extraData["request_id"] = c.Writer.Header().Get(requestIdCtxKey)
-				}
-				for _, item := range c.Errors {
-					extraData["meta"] = fmt.Sprint(item.Meta)
-					RollbarError(item.Err, c.Request, extraData)
-				}
-
 				panic(r)
 			}
 		}()
+
+		if !onlyPanics {
+			extraData := make(map[string]interface{})
+			extraData["endpoint"] = c.Request.RequestURI
+			if requestIdCtxKey != "" {
+				extraData["request_id"] = c.Writer.Header().Get(requestIdCtxKey)
+			}
+			for _, item := range c.Errors {
+				extraData["meta"] = fmt.Sprint(item.Meta)
+				RollbarError(item.Err, c.Request, extraData)
+			}
+		}
 
 		c.Next()
 	}
