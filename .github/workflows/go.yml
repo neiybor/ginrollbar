@@ -1,4 +1,4 @@
-name: Run Tests
+name: Pipeline
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
         include:
           - os: ubuntu-latest
             go-build: ~/.cache/go-build
-    name: ${{ matrix.os }} @ Go ${{ matrix.go }}
+    name: Tests on ${{ matrix.os }} @ Go ${{ matrix.go }}
     runs-on: ${{ matrix.os }}
     env:
       GO111MODULE: on
